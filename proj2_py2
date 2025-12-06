@@ -1,0 +1,175 @@
+import math
+import time
+
+# this the data loading function. It reads a dataset from text in the terminal
+def load_dataset(path):
+    data = []
+    with open(path, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+             #skip empty or weird one-number lines. i added this checkbecause some datasets have blank lines at the end
+            if len(parts) <= 1:
+                continue
+            row = [float(x) for x in parts]
+            data.append(row)
+    return data
+
+
+def normalize_dataset(data):
+    # data rows: [label, f1, f2, ..., fD]
+    num_features = len(data[0]) - 1
+    num_rows = len(data)
+
+    means = [0.0] * num_features
+    stds = [0.0] * num_features
+
+    # mean
+    for row in data:
+        for j in range(num_features):
+            means[j] += row[j + 1]
+    means = [m / num_rows for m in means]
+
+    # std
+    for row in data:
+        for j in range(num_features):
+            diff = row[j + 1] - means[j]
+            stds[j] += diff * diff
+    stds = [math.sqrt(s / num_rows) for s in stds]
+
+    # normalize
+    norm_data = []
+    for row in data:
+        new_row = [row[0]]  # keep label
+        for j in range(num_features):
+            if stds[j] == 0.0:
+                new_row.append(0.0)
+            else:
+                new_row.append((row[j + 1] - means[j]) / stds[j])
+        norm_data.append(new_row)
+
+    return norm_data
+
+
+# Euclidean distance using only the given feature indices
+
+def distance(p, q, features):
+    # Euclidean distance using only the given feature indices
+    s = 0.0
+    for i in features:
+        diff = p[i] - q[i]
+        s += diff * diff
+    return s**0.5
+
+
+# i decided to encapsulate the 1-NN classifier in a class for clarity. this is a concept I learned in cs 010B. 
+class NNClassifier:
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.train_indices = []
+# this just remembers which rows are training data for leave-one-out validation like you said in the instructions
+
+    def train(self, train_indices):
+        self.train_indices = train_indices
+
+# 1-NN prediction for dataset[test_index]
+
+    def test(self, test_index, features):
+        test_point = self.dataset[test_index] # this is the point i am trying to classify
+        best_dist = float("inf") #  i initialize best distance to infinity. it could have been any really large number
+        best_label = None
+
+        for i in self.train_indices:
+            d = distance(test_point, self.dataset[i], features)
+            if d < best_dist:
+                best_dist = d
+                best_label = self.dataset[i][0]
+
+        return best_label
+
+
+# this class encapsulates the leave-one-out validation process
+class Validator:
+    def __init__(self, dataset, classifier):
+        self.dataset = dataset 
+        self.classifier = classifier
+
+    def leave_one_out(self, features):
+        correct = 0
+        total = len(self.dataset)
+
+        for i in range(total):
+            train_indices = [j for j in range(total) if j != i]
+            self.classifier.train(train_indices)
+            pred = self.classifier.test(i, features)
+            actual = self.dataset[i][0]
+            if pred == actual:
+                correct += 1
+
+        return correct / total
+
+
+
+
+
+def main():
+    print("Welcome to Tolu Adeleye's NN classifier and validator.")
+    print("I will load a dataset, normalize it, and run NN with leave-one-out validation.\n")
+
+    # Ask for dataset file
+    print("Enter dataset file name (for example: small-test-dataset-2-2.txt or large-test-dataset-2.txt):")
+    path = input().strip() # here i get the path to the dataset from the user
+
+    data = load_dataset(path) # load the dataset from the file
+    if len(data) == 0:
+        print("Dataset seems empty or invalid.")
+        return
+
+    dataset = normalize_dataset(data) # normalize the dataset
+    num_features = len(dataset[0]) - 1 # excluding label
+    num_instances = len(dataset) # number of data points
+
+    print(f"\nLoaded {num_instances} instances with {num_features} features (after the label column).") # here i inform the user about the dataset
+
+    clf = NNClassifier(dataset)
+    validator = Validator(dataset, clf)
+
+    print("\nNow enter a feature subset to evaluate.")
+    print("Use 1-based feature numbers (1..{}). Example: 3 5 7".format(num_features))
+    print("Type 'q' to quit.\n")
+
+    while True: # main loop to get feature subsets from the user
+        line = input("Feature subset> ").strip()
+        if line.lower() == "q":
+            break
+        if line == "":
+            continue
+
+        try:
+            # this is where the user enters e.g. "3 5 7"
+            feats = [int(x) for x in line.split()]
+
+        except ValueError:
+            print("Please enter space-separated integers, or 'q' to quit.")
+            continue
+
+        # this makes sure they are within range 1..num_features
+        ok = True
+        for f in feats:
+            if f < 1 or f > num_features:
+                ok = False
+                break
+        if not ok:
+            print(f"Features must be between 1 and {num_features}. Try again.")
+            continue
+
+        # this is the actual evaluation and timing of the feature subset selected by the user. 
+        start = time.time()
+        acc = validator.leave_one_out(feats)
+        end = time.time()
+        elapsed = end - start
+
+        print(f"Using features {feats}, accuracy = {acc:.3f}, time = {elapsed:.3f} seconds\n")
+
+
+if __name__ == "__main__":
+    main()
